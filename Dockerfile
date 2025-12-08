@@ -1,5 +1,5 @@
 # Use the official Debian base image
-FROM  consol/debian-xfce-vnc:v2.0.4
+FROM consol/debian-xfce-vnc:v2.0.4
 
 # Set locale to avoid warnings
 ENV LC_ALL=C.UTF-8
@@ -25,22 +25,44 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy the Python script into the container
 COPY cronitor.py /headless/scripts/
 
-# Retrieve the latest release tag from GitHub
+# Retrieve the latest release tag from GitHub (auto-fetch if not provided)
 RUN CPU=$(dpkg-architecture -q DEB_HOST_ARCH_CPU) && \
+    # Auto-fetch latest tag if not provided
+    if [ -z "$LATEST_TAG" ]; then \
+        echo "LATEST_TAG not provided, fetching latest release..." && \
+        LATEST_TAG=$(curl -s https://api.github.com/repos/walrusone/iptvboss-release/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'); \
+    fi && \
     # Build the latest release
     if [ -n "$LATEST_TAG" ]; then \
+        echo "Installing iptvboss ${LATEST_TAG}..." && \
         wget https://github.com/walrusone/iptvboss-release/releases/download/${LATEST_TAG}/iptvboss_${LATEST_TAG#v}_${CPU}.deb && \
         apt install -y ./iptvboss_${LATEST_TAG#v}_${CPU}.deb && \
         cp /usr/share/applications/io.github.walrusone.iptvboss-release.desktop /headless/Desktop/iptvboss-release.desktop && \
-        chmod 777 /headless/Desktop/iptvboss-release.desktop; \
+        chmod 777 /headless/Desktop/iptvboss-release.desktop && \
+        rm -f ./iptvboss_${LATEST_TAG#v}_${CPU}.deb; \
     fi && \
     # Build the beta version
     if [ -n "$BETA_TAG" ]; then \
+        echo "Installing iptvboss BETA ${BETA_TAG}..." && \
         wget https://github.com/walrusone/iptvboss-beta/releases/latest/download/iptvboss_${BETA_TAG#v}_${CPU}.deb && \
         apt install -y ./iptvboss_${BETA_TAG#v}_${CPU}.deb && \
         cp /usr/share/applications/io.github.walrusone.iptvboss-release.desktop /headless/Desktop/iptvboss-beta.desktop && \
-        chmod 777 /headless/Desktop/iptvboss-beta.desktop; \
+        chmod 777 /headless/Desktop/iptvboss-beta.desktop && \
+        rm -f ./iptvboss_${BETA_TAG#v}_${CPU}.deb; \
     fi
+
+# FIX BROWSERS - Remove broken Firefox and Chromium, install working Firefox ESR
+RUN apt-get remove -y firefox chromium chromium-browser || true && \
+    apt-get autoremove -y && \
+    rm -f /headless/Desktop/firefox.desktop /headless/Desktop/chromium*.desktop && \
+    apt-get update && \
+    apt-get install -y firefox-esr && \
+    ln -sf /usr/bin/firefox-esr /usr/bin/firefox && \
+    if [ -f /usr/share/applications/firefox-esr.desktop ]; then \
+        cp /usr/share/applications/firefox-esr.desktop /headless/Desktop/firefox-esr.desktop && \
+        chmod 755 /headless/Desktop/firefox-esr.desktop; \
+    fi && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create a new user with home directory set to /headless
 RUN useradd -u 911 -U -d /headless -s /bin/bash iptvboss
